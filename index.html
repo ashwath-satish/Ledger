@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LEDGER — the spreadsheet compiler</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --ink:#16241d;
+    --ink-soft:#4a5a51;
+    --paper:#f4f2e7;
+    --bar:#d8e6cf;
+    --rule:#c6c3b0;
+    --red:#b3241f;
+    --red-wash:rgba(179,36,31,.10);
+    --blue:#1f4e79;
+    --amber:#8a6d1f;
+    --mono:ui-monospace,"SF Mono",Menlo,"DejaVu Sans Mono",monospace;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    --sans:"Helvetica Neue",Inter,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:14px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--blue)}
+
+  /* ---------- masthead ---------- */
+  header{
+    border-bottom:2px solid var(--ink);
+    padding:18px 24px 14px;
+    display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;
+  }
+  .brand{display:flex;align-items:baseline;gap:14px}
+  .brand h1{
+    font-family:var(--serif);
+    font-size:34px;letter-spacing:.14em;font-weight:400;margin:0;
+  }
+  .brand .tag{
+    font-family:var(--mono);font-size:11px;text-transform:uppercase;
+    letter-spacing:.16em;color:var(--ink-soft);
+  }
+  .masthead-note{
+    font-family:var(--mono);font-size:11px;color:var(--ink-soft);
+    max-width:420px;text-align:right;line-height:1.6;
+  }
+
+  /* ---------- toolbar ---------- */
+  .toolbar{
+    display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+    padding:12px 24px;border-bottom:1px solid var(--rule);
+    background:rgba(0,0,0,.015);
+  }
+  button{
+    font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;
+    background:var(--ink);color:var(--paper);border:1px solid var(--ink);
+    padding:8px 14px;cursor:pointer;border-radius:2px;
+    transition:transform .08s ease, opacity .15s ease;
+  }
+  button:hover{transform:translateY(-1px)}
+  button:active{transform:translateY(0)}
+  button:disabled{opacity:.35;cursor:not-allowed;transform:none}
+  button.ghost{background:transparent;color:var(--ink)}
+  button.danger{background:var(--red);border-color:var(--red)}
+  button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+  .spacer{flex:1}
+  .status{font-family:var(--mono);font-size:11px;color:var(--ink-soft)}
+  .status b{color:var(--ink)}
+
+  /* ---------- layout ---------- */
+  main{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:0;min-height:calc(100vh - 130px)}
+  .pane{padding:22px 24px;min-width:0}
+  .pane + .pane{border-left:1px solid var(--rule)}
+  .pane-title{
+    font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.16em;
+    color:var(--ink-soft);margin:0 0 12px;display:flex;align-items:center;gap:10px;
+  }
+  .pane-title:after{content:"";flex:1;height:1px;background:var(--rule)}
+
+  /* ---------- green-bar paper ---------- */
+  .paper-wrap{
+    border:1px solid var(--rule);background:#fff;overflow:auto;max-height:52vh;
+    position:relative;
+  }
+  .dropzone{
+    border:2px dashed var(--rule);padding:46px 20px;text-align:center;color:var(--ink-soft);
+    font-family:var(--mono);font-size:12px;line-height:2;background:#fff;
+  }
+  .dropzone.hot{border-color:var(--ink);background:var(--bar)}
+  table.grid{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12px}
+  table.grid th{
+    background:var(--ink);color:var(--paper);font-weight:400;padding:4px 8px;
+    position:sticky;top:0;font-size:10px;letter-spacing:.1em;text-align:left;z-index:2;
+  }
+  table.grid td{
+    padding:4px 8px;border-right:1px solid #e8e6d8;white-space:nowrap;
+    max-width:190px;overflow:hidden;text-overflow:ellipsis;
+  }
+  table.grid tr:nth-child(even) td{background:var(--bar)}
+  table.grid tr:nth-child(odd) td{background:#fff}
+  td.rowhead{background:var(--ink)!important;color:var(--paper);font-size:10px;text-align:right}
+  td.formula{color:var(--blue)}
+  td.flag{
+    background:var(--red-wash)!important;
+    box-shadow:inset 0 0 0 2px var(--red);
+    color:var(--red);font-weight:700;position:relative;
+  }
+  td.flag:after{
+    content:attr(data-mark);position:absolute;top:-2px;right:2px;
+    font-size:9px;color:var(--red);
+  }
+
+  /* ---------- findings ---------- */
+  .finding{
+    border-left:3px solid var(--red);background:var(--red-wash);
+    padding:11px 13px;margin:0 0 10px;
+  }
+  .finding.warn{border-color:var(--amber);background:rgba(138,109,31,.08)}
+  .finding h4{
+    margin:0 0 4px;font-family:var(--mono);font-size:11px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--red);display:flex;gap:8px;align-items:center;
+  }
+  .finding.warn h4{color:var(--amber)}
+  .finding .cells{font-family:var(--mono);font-size:11px;color:var(--ink-soft);margin-top:5px}
+  .finding p{margin:3px 0 0;font-size:13px}
+  .finding .ai{
+    margin-top:8px;padding-top:8px;border-top:1px dashed rgba(0,0,0,.15);
+    font-size:13px;font-style:italic;
+  }
+  .finding .ai:before{
+    content:"reading the author's intent · featherless";
+    display:block;font-family:var(--mono);font-style:normal;font-size:9px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:4px;
+  }
+  .clean{
+    font-family:var(--mono);font-size:12px;color:var(--ink-soft);
+    border:1px dashed var(--rule);padding:22px;text-align:center;
+  }
+
+  /* ---------- tabs ---------- */
+  .tabs{display:flex;gap:2px;margin-bottom:12px;border-bottom:1px solid var(--rule)}
+  .tab{
+    font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.1em;
+    padding:7px 12px;cursor:pointer;color:var(--ink-soft);border:1px solid transparent;
+    border-bottom:none;background:none;border-radius:0;
+  }
+  .tab[aria-selected="true"]{
+    color:var(--ink);background:var(--paper);border-color:var(--rule);
+    margin-bottom:-1px;padding-bottom:8px;
+  }
+  .tabpanel[hidden]{display:none}
+  pre{
+    margin:0;font-family:var(--mono);font-size:12px;line-height:1.6;
+    background:var(--ink);color:#dfe7db;padding:16px;overflow:auto;max-height:56vh;
+    border-radius:2px;
+  }
+  pre .c{color:#7f9a86}
+  pre .k{color:#f0c674}
+  pre .s{color:#9ec8e8}
+
+  /* ---------- stats ---------- */
+  .stats{display:flex;gap:0;border:1px solid var(--rule);margin-bottom:16px;background:#fff}
+  .stat{flex:1;padding:10px 12px;border-right:1px solid var(--rule)}
+  .stat:last-child{border-right:none}
+  .stat .n{font-family:var(--serif);font-size:26px;line-height:1}
+  .stat .l{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-soft);margin-top:4px}
+  .stat.bad .n{color:var(--red)}
+
+  /* ---------- settings ---------- */
+  .settings{
+    border:1px solid var(--rule);background:#fff;padding:14px 16px;margin-bottom:16px;
+  }
+  .settings[hidden]{display:none}
+  .settings h3{
+    margin:0 0 10px;font-family:var(--mono);font-size:11px;text-transform:uppercase;
+    letter-spacing:.14em;color:var(--ink-soft);font-weight:400;
+  }
+  .field{display:flex;flex-direction:column;gap:3px;margin-bottom:9px}
+  .field label{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft)}
+  .field input{
+    font-family:var(--mono);font-size:12px;padding:7px 9px;
+    border:1px solid var(--rule);background:var(--paper);color:var(--ink);border-radius:2px;
+  }
+  .field input:focus{outline:2px solid var(--blue);outline-offset:-1px}
+  .hint{font-family:var(--mono);font-size:10px;color:var(--ink-soft);line-height:1.7}
+
+  /* ---------- dag ---------- */
+  #dag{width:100%;height:auto;background:#fff;border:1px solid var(--rule)}
+  #dag text{font-family:var(--mono);font-size:9px;fill:var(--ink)}
+  #dag .node rect{fill:#fff;stroke:var(--ink);stroke-width:1}
+  #dag .node.input rect{fill:var(--bar)}
+  #dag .node.bad rect{fill:var(--red-wash);stroke:var(--red);stroke-width:2}
+  #dag .edge{stroke:var(--ink-soft);stroke-width:1;fill:none;opacity:.55}
+
+  .rule{height:1px;background:var(--rule);margin:18px 0}
+  footer{
+    border-top:2px solid var(--ink);padding:14px 24px;
+    font-family:var(--mono);font-size:10px;color:var(--ink-soft);
+    display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  }
+  @media(max-width:900px){
+    main{grid-template-columns:1fr}
+    .pane + .pane{border-left:none;border-top:1px solid var(--rule)}
+    .masthead-note{text-align:left}
+  }
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>LEDGER</h1>
+    <span class="tag">the spreadsheet compiler</span>
+  </div>
+  <div class="masthead-note">
+    Excel is the most widely used programming language on earth.<br>
+    It has no types, no tests, and no code review.<br>
+    We compile it — and audit it on the way through.
+  </div>
+</header>
+
+<div class="toolbar">
+  <button id="btn-demo">Load the demo ledger</button>
+  <button id="btn-open" class="ghost">Open a .xlsx</button>
+  <input type="file" id="file" accept=".xlsx,.xlsm,.xls" hidden>
+  <button id="btn-compile" disabled>Compile</button>
+  <button id="btn-ai" class="danger" disabled>Read intent with AI</button>
+  <button id="btn-settings" class="ghost">Inference settings</button>
+  <div class="spacer"></div>
+  <div class="status" id="status">No workbook loaded.</div>
+</div>
+
+<main>
+  <section class="pane">
+    <p class="pane-title">The sheet, as filed</p>
+    <div id="sheet-host">
+      <div class="dropzone" id="drop">
+        Drop an .xlsx here<br>
+        <span style="opacity:.6">— or load the demo ledger, which contains four real bugs —</span>
+      </div>
+    </div>
+
+    <div class="rule"></div>
+
+    <p class="pane-title">Audit</p>
+    <div class="stats" id="stats" hidden>
+      <div class="stat"><div class="n" id="s-cells">0</div><div class="l">Formula cells</div></div>
+      <div class="stat"><div class="n" id="s-edges">0</div><div class="l">Dependencies</div></div>
+      <div class="stat"><div class="n" id="s-depth">0</div><div class="l">Max depth</div></div>
+      <div class="stat bad"><div class="n" id="s-bugs">0</div><div class="l">Defects found</div></div>
+    </div>
+    <div id="findings">
+      <div class="clean">Nothing compiled yet.</div>
+    </div>
+  </section>
+
+  <section class="pane">
+    <div class="settings" id="settings" hidden>
+      <h3>Featherless inference</h3>
+      <div class="field">
+        <label for="key">API key</label>
+        <input id="key" type="password" placeholder="rc_..." autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="model-code">Code model — naming &amp; invariants</label>
+        <input id="model-code" value="Qwen/Qwen2.5-Coder-32B-Instruct">
+      </div>
+      <div class="field">
+        <label for="model-prose">Prose model — defect explanations</label>
+        <input id="model-prose" value="Qwen/Qwen2.5-72B-Instruct">
+      </div>
+      <div class="field">
+        <label for="endpoint">Endpoint</label>
+        <input id="endpoint" value="https://api.featherless.ai/v1/chat/completions">
+      </div>
+      <p class="hint">
+        The compiler is fully deterministic and runs with no network at all.<br>
+        The model is used only where a parser cannot help: naming cells from their
+        headers, explaining each defect in plain English, and proposing business-rule
+        invariants to test. It is never asked to do arithmetic.<br>
+        <span style="color:var(--ink)">Two models, because the two jobs are different.</span>
+        Emitting Python identifiers and valid assertions is a code task; explaining a
+        defect to the person who owns the numbers is a prose task. Coder models write
+        stilted prose; general models write sloppy identifiers.<br>
+        Key stays in this tab. If the browser blocks the call, run <span style="color:var(--ink)">proxy.py</span> and point the endpoint at localhost.
+      </p>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-tab="py">Generated module</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="test">Generated tests</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="dag">Dependency graph</button>
+    </div>
+
+    <div class="tabpanel" id="tab-py">
+      <pre id="out-py">// Compile a workbook to emit a typed Python module.</pre>
+    </div>
+    <div class="tabpanel" id="tab-test" hidden>
+      <pre id="out-test">// Compile a workbook to emit a pytest suite.</pre>
+    </div>
+    <div class="tabpanel" id="tab-dag" hidden>
+      <svg id="dag" viewBox="0 0 600 300" role="img" aria-label="Dependency graph of the workbook"></svg>
+    </div>
+
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button id="btn-dl-py" class="ghost" disabled>Download module.py</button>
+      <button id="btn-dl-test" class="ghost" disabled>Download test_module.py</button>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span>LEDGER · deterministic core, no hallucinated arithmetic</span>
+  <span>Semantic layer: Featherless AI</span>
+</footer>
+
+<script>
+/* =====================================================================
+   LEDGER — a spreadsheet compiler.
+
+   Pipeline:
+     .xlsx  →  cell table  →  formula parse  →  dependency DAG
+            →  static audit (cycles, off-by-one ranges, pattern breaks,
+                             magic numbers, dangling refs)
+            →  topological sort  →  Python codegen + pytest regression suite
+
+   The LLM never touches steps 1–5. It is called afterwards, on the
+   *artifacts*, to do the one thing a parser fundamentally cannot: read
+   the human meaning in the headers.
+   ===================================================================== */
+
+const $ = s => document.querySelector(s);
+const state = { cells:null, graph:null, findings:[], names:{}, order:[], sheetName:'' };
+
+/* ---------- address helpers ---------- */
+const colName = c => { let s=''; c++; while(c>0){ const m=(c-1)%26; s=String.fromCharCode(65+m)+s; c=(c-m-1)/26; } return s; };
+const addr = (r,c) => colName(c)+(r+1);
+function parseAddr(a){
+  const m = /^\$?([A-Z]{1,3})\$?(\d{1,7})$/.exec(a.toUpperCase());
+  if(!m) return null;
+  let c=0; for(const ch of m[1]) c = c*26 + (ch.charCodeAt(0)-64);
+  return { r:parseInt(m[2],10)-1, c:c-1 };
+}
+
+/* A reference is 1–3 letters + digits, NOT followed by "(" (that would be
+   a function name like LOG10). Sheet qualifiers are captured and dropped —
+   single-sheet scope keeps the demo honest about what it supports. */
+const REF_RE = /(?:'[^']+'!|[A-Za-z0-9_]+!)?(\$?[A-Z]{1,3}\$?\d{1,7})(?::(\$?[A-Z]{1,3}\$?\d{1,7}))?(?!\s*\()/g;
+
+function stripStrings(f){ return f.replace(/"(?:[^"]|"")*"/g,'""'); }
+
+function refsOf(formula){
+  const out = [];
+  const f = stripStrings(formula);
+  REF_RE.lastIndex = 0;
+  let m;
+  while((m = REF_RE.exec(f))){
+    const a = parseAddr(m[1]);
+    if(!a) continue;
+    if(m[2]){
+      const b = parseAddr(m[2]);
+      if(!b) continue;
+      out.push({ kind:'range', from:a, to:b, text:m[0] });
+    } else {
+      out.push({ kind:'cell', at:a, text:m[0] });
+    }
+  }
+  return out;
+}
+
+function expandRange(r){
+  const cells=[];
+  for(let i=Math.min(r.from.r,r.to.r); i<=Math.max(r.from.r,r.to.r); i++)
+    for(let j=Math.min(r.from.c,r.to.c); j<=Math.max(r.from.c,r.to.c); j++)
+      cells.push(addr(i,j));
+  return cells;
+}
+
+/* ---------- R1C1 normalisation: the key to pattern-break detection ----------
+   Two formulas are "the same formula" if they look identical once every
+   reference is rewritten relative to the cell it lives in. =B2*C2 in D2 and
+   =B3*C3 in D3 normalise to the same string. =B8*C7 in D8 does not. */
+function toR1C1(formula, r, c){
+  const f = stripStrings(formula);
+  REF_RE.lastIndex = 0;
+  return f.replace(REF_RE, (whole, a1, a2) => {
+    const rel = a => {
+      const p = parseAddr(a);
+      if(!p) return a;
+      const absR = /\$\d/.test(a), absC = /^\$/.test(a);
+      const rr = absR ? 'R'+(p.r+1) : 'R['+(p.r-r)+']';
+      const cc = absC ? 'C'+(p.c+1) : 'C['+(p.c-c)+']';
+      return rr+cc;
+    };
+    return a2 ? rel(a1)+':'+rel(a2) : rel(a1);
+  });
+}
+
+/* ---------- ingest ---------- */
+function ingest(ws, name){
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+  const cells = new Map();
+  for(let r=range.s.r; r<=range.e.r; r++){
+    for(let c=range.s.c; c<=range.e.c; c++){
+      const a = addr(r,c);
+      const cell = ws[a];
+      if(!cell) continue;
+      cells.set(a, {
+        a, r, c,
+        v: cell.v,
+        f: cell.f ? String(cell.f) : null,
+        t: cell.t
+      });
+    }
+  }
+  state.cells = cells;
+  state.sheetName = name;
+  buildGraph();
+}
+
+function buildGraph(){
+  const deps = new Map();   // cell -> [cells it reads]
+  const rdeps = new Map();  // cell -> [cells that read it]
+  let edges = 0;
+  for(const [a,cell] of state.cells){
+    if(!cell.f) continue;
+    const read = [];
+    for(const ref of refsOf(cell.f)){
+      const targets = ref.kind==='range' ? expandRange(ref) : [addr(ref.at.r, ref.at.c)];
+      for(const t of targets){
+        if(t===a) continue;
+        read.push(t);
+        if(!rdeps.has(t)) rdeps.set(t, []);
+        rdeps.get(t).push(a);
+        edges++;
+      }
+    }
+    deps.set(a, read);
+  }
+  state.graph = { deps, rdeps, edges };
+}
+
+/* ---------- cycle detection (iterative DFS, three-colour) ---------- */
+function findCycles(){
+  const { deps } = state.graph;
+  const colour = new Map(); // 0 white 1 grey 2 black
+  const cycles = [];
+  const stack = [];
+  const visit = start => {
+    const work = [[start, 0]];
+    while(work.length){
+      const frame = work[work.length-1];
+      const [node, i] = frame;
+      if(i===0){
+        if(colour.get(node)===2){ work.pop(); continue; }
+        colour.set(node,1); stack.push(node);
+      }
+      const kids = deps.get(node) || [];
+      if(i < kids.length){
+        frame[1]++;
+        const k = kids[i];
+        if(!deps.has(k)) continue;         // leaf input, not part of a cycle
+        if(colour.get(k)===1){
+          const at = stack.indexOf(k);
+          cycles.push(stack.slice(at).concat(k));
+        } else if(colour.get(k)!==2){
+          work.push([k,0]);
+        }
+      } else {
+        colour.set(node,2); stack.pop(); work.pop();
+      }
+    }
+  };
+  for(const n of deps.keys()) if(!colour.has(n)) visit(n);
+  // de-duplicate cycles by their sorted member set
+  const seen = new Set(), out = [];
+  for(const cyc of cycles){
+    const key = [...new Set(cyc)].sort().join('|');
+    if(seen.has(key)) continue;
+    seen.add(key); out.push(cyc);
+  }
+  return out;
+}
+
+/* ---------- audit ---------- */
+function audit(){
+  const F = [];
+  const cells = state.cells;
+
+  /* 1. circular references */
+  for(const cyc of findCycles()){
+    F.push({
+      sev:'error', code:'CYCLE',
+      title:'Circular reference',
+      cells:[...new Set(cyc)],
+      body:'These cells depend on each other in a loop: '+cyc.join(' → ')+
+           '. Excel silently returns 0 or a stale iterate; the value you are looking at is not a computation, it is an accident.'
+    });
+  }
+
+  /* 2. aggregation ranges that miss rows (the classic off-by-one) */
+  for(const [a,cell] of cells){
+    if(!cell.f) continue;
+    const agg = /\b(SUM|AVERAGE|COUNT|COUNTA|MIN|MAX|PRODUCT)\s*\(/i.exec(cell.f);
+    if(!agg) continue;
+    for(const ref of refsOf(cell.f)){
+      if(ref.kind!=='range') continue;
+      if(ref.from.c !== ref.to.c) continue;              // vertical ranges only
+      if(ref.from.c !== cell.c) continue;                // in this cell's own column
+      const lo = Math.min(ref.from.r, ref.to.r), hi = Math.max(ref.from.r, ref.to.r);
+      if(hi >= cell.r) continue;                         // must sit above the total
+      // walk upward from the cell to find the true contiguous block of data
+      let top = cell.r - 1;
+      while(top >= 0){
+        const c = cells.get(addr(top, cell.c));
+        if(!c || (typeof c.v !== 'number' && !c.f)) break;
+        top--;
+      }
+      top++;
+      const missing = [];
+      for(let r=top; r<=cell.r-1; r++) if(r < lo || r > hi) missing.push(addr(r, cell.c));
+      if(missing.length){
+        F.push({
+          sev:'error', code:'RANGE',
+          title:`${agg[1].toUpperCase()}() does not cover its data`,
+          cells:[a, ...missing],
+          body:`${a} aggregates ${ref.text} but the contiguous block of data above it runs `+
+               `${addr(top,cell.c)}:${addr(cell.r-1,cell.c)}. `+
+               `${missing.length} row${missing.length>1?'s are':' is'} silently excluded from the total: ${missing.join(', ')}. `+
+               `Someone added rows and the range never grew.`
+        });
+      }
+    }
+  }
+
+  /* 3. pattern breaks — a cell that disagrees with its column's own formula */
+  const byCol = new Map();
+  for(const [a,cell] of cells){
+    if(!cell.f) continue;
+    if(!byCol.has(cell.c)) byCol.set(cell.c, []);
+    byCol.get(cell.c).push(cell);
+  }
+  for(const [c, list] of byCol){
+    if(list.length < 4) continue;
+    list.sort((x,y)=>x.r-y.r);
+    const sigs = list.map(cell => ({ cell, sig: toR1C1(cell.f, cell.r, cell.c) }));
+    const tally = new Map();
+    for(const s of sigs) tally.set(s.sig, (tally.get(s.sig)||0)+1);
+    let modal=null, modalN=0;
+    for(const [sig,n] of tally) if(n>modalN){ modal=sig; modalN=n; }
+    if(modalN < 3) continue;
+    const deviants = sigs.filter(s => s.sig !== modal);
+    if(!deviants.length || deviants.length > list.length*0.34) continue;
+    for(const d of deviants){
+      // a deviant that is itself an aggregate is a legitimate total row, not a bug
+      if(/\b(SUM|AVERAGE|COUNT|COUNTA|MIN|MAX|SUBTOTAL)\s*\(/i.test(d.cell.f)) continue;
+      F.push({
+        sev:'error', code:'PATTERN',
+        title:'Formula breaks the column pattern',
+        cells:[d.cell.a],
+        body:`Every other formula in column ${colName(c)} normalises to \`${modal}\`, `+
+             `but ${d.cell.a} is \`=${d.cell.f}\` which normalises to \`${d.cell.sig}\`. `+
+             `A copy-paste that landed one row off looks exactly like this — and the sheet shows a plausible number, so nobody ever notices.`
+      });
+    }
+  }
+
+  /* 4. magic numbers baked into formulas — grouped by the literal itself,
+        because "1.085 appears in 10 cells" is the finding, not "cell E2". */
+  const magic = new Map();
+  for(const [a,cell] of cells){
+    if(!cell.f) continue;
+    let f = stripStrings(cell.f);
+    f = f.replace(REF_RE, ' ');                      // drop refs so A1 isn't read as "1"
+    const nums = (f.match(/\b\d+(?:\.\d+)?\b/g) || [])
+      .filter(n => !['0','1','2','12','100'].includes(n));
+    for(const n of new Set(nums)){
+      if(!magic.has(n)) magic.set(n, []);
+      magic.get(n).push(a);
+    }
+  }
+  for(const [n, where] of magic){
+    F.push({
+      sev:'warn', code:'MAGIC',
+      title: where.length > 1
+        ? `Constant \`${n}\` copied into ${where.length} formulas`
+        : `Hardcoded constant \`${n}\``,
+      cells: where,
+      body: where.length > 1
+        ? `The literal \`${n}\` is baked into ${where.length} separate formulas. There is no single place to change it. `+
+          `When this rate moves, someone has to find all ${where.length} by hand — and the day they miss one, the sheet is quietly wrong.`
+        : `${where[0]} hardcodes \`${n}\` inside its formula. This belongs in a named input cell, not buried in an expression.`
+    });
+  }
+
+  /* 5. orphan inputs — data that nothing reads.
+        A number sitting in a column whose siblings are all consumed, but which
+        no formula touches, is either dead weight or the fingerprint of a
+        reference that went to the wrong place. Note that this catches the D8
+        bug from the opposite direction, without knowing anything about it. */
+  const read = new Set();
+  for(const [, kids] of state.graph.deps) for(const k of kids) read.add(k);
+  const colRead = new Map();
+  for(const a of read){
+    const c = cells.get(a); if(!c) continue;
+    colRead.set(c.c, (colRead.get(c.c)||0)+1);
+  }
+  const orphans = [];
+  for(const [a,cell] of cells){
+    if(cell.f || typeof cell.v !== 'number') continue;
+    if(read.has(a)) continue;
+    if((colRead.get(cell.c)||0) < 2) continue;   // column isn't a data column at all
+    orphans.push(a);
+  }
+  if(orphans.length){
+    F.push({
+      sev:'error', code:'ORPHAN',
+      title:'Data that nothing reads',
+      cells:orphans,
+      body:`${orphans.join(', ')} hold${orphans.length>1?'':'s'} a number, and sit in a column the sheet otherwise `+
+           `consumes — but no formula anywhere reads ${orphans.length>1?'them':'it'}. Either this data is dead, or a formula `+
+           `that was supposed to read it is pointing somewhere else. Both are bugs, and neither is visible in the sheet.`
+    });
+  }
+
+  /* 6. dangling references */
+  for(const [a,cell] of cells){
+    if(cell.f && /#REF!/.test(cell.f)){
+      F.push({ sev:'error', code:'DANGLING', title:'Reference to a deleted cell',
+        cells:[a], body:`${a} points at a cell that no longer exists.` });
+    }
+  }
+
+  state.findings = F;
+  return F;
+}
+
+/* ---------- topological order ---------- */
+function topoSort(){
+  const { deps } = state.graph;
+  const indeg = new Map(), out = new Map();
+  for(const n of deps.keys()){ indeg.set(n,0); }
+  for(const [n, kids] of deps){
+    for(const k of kids){
+      if(!deps.has(k)) continue;             // input cell, not a node
+      indeg.set(n, indeg.get(n)+1);
+      if(!out.has(k)) out.set(k,[]);
+      out.get(k).push(n);
+    }
+  }
+  // Kahn's algorithm, but the ready-set is drained in sheet order (top-left to
+  // bottom-right) so the emitted module reads the way the sheet reads.
+  const cmp = (a,b) => {
+    const A = state.cells.get(a), B = state.cells.get(b);
+    if(!A || !B) return a < b ? -1 : 1;
+    return A.r - B.r || A.c - B.c;
+  };
+  const q = [...indeg].filter(([,d])=>d===0).map(([n])=>n).sort(cmp);
+  const order = [];
+  while(q.length){
+    const n = q.shift();
+    order.push(n);
+    let added = false;
+    for(const m of (out.get(n)||[])){
+      indeg.set(m, indeg.get(m)-1);
+      if(indeg.get(m)===0){ q.push(m); added = true; }
+    }
+    if(added) q.sort(cmp);
+  }
+  const cyclic = [...deps.keys()].filter(n => !order.includes(n));
+  return { order, cyclic };
+}
+
+function maxDepth(){
+  const { deps } = state.graph;
+  const memo = new Map();
+  const d = n => {
+    if(memo.has(n)) return memo.get(n);
+    memo.set(n, 0);
+    const kids = (deps.get(n)||[]).filter(k=>deps.has(k));
+    const v = kids.length ? 1 + Math.max(...kids.map(d)) : 0;
+    memo.set(n, v);
+    return v;
+  };
+  let m = 0;
+  for(const n of deps.keys()) m = Math.max(m, d(n));
+  return m;
+}
+
+/* ---------- naming ----------
+   Heuristic fallback: <row header>_<column header>, slugified.
+   The AI pass replaces this with something a human would actually write. */
+function slug(s){
+  return String(s).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,34) || 'x';
+}
+function heuristicNames(){
+  const cells = state.cells;
+  const names = {};
+  const used = new Set();
+  const colHead = c => { const h = cells.get(addr(0,c)); return h && typeof h.v === 'string' ? h.v : colName(c); };
+  const rowHead = r => {
+    for(let c=0;c<6;c++){ const h = cells.get(addr(r,c)); if(h && typeof h.v==='string') return h.v; }
+    return 'row'+(r+1);
+  };
+  for(const [a,cell] of cells){
+    if(cell.r===0) continue;
+    let n = slug(rowHead(cell.r)) + '_' + slug(colHead(cell.c));
+    n = n.replace(/^(\d)/,'n$1');
+    let k=n, i=2; while(used.has(k)) k = n+'_'+(i++);
+    used.add(k); names[a] = k;
+  }
+  return names;
+}
+
+/* ---------- formula → Python ---------- */
+function toPython(cell, names){
+  let f = cell.f;
+  const nameFor = a => names[a] || ('cell_'+a.toLowerCase());
+  const refs = refsOf(f);
+  // longest text first so B10 isn't clobbered while rewriting B1
+  refs.sort((x,y)=>y.text.length - x.text.length);
+  for(const ref of refs){
+    const rep = ref.kind==='range'
+      ? '[' + expandRange(ref).map(nameFor).join(', ') + ']'
+      : nameFor(addr(ref.at.r, ref.at.c));
+    f = f.split(ref.text).join(rep);
+  }
+  f = f
+    .replace(/\bSUM\(/gi,'sum(').replace(/\bAVERAGE\(/gi,'mean(')
+    .replace(/\bMIN\(/gi,'min(').replace(/\bMAX\(/gi,'max(')
+    .replace(/\bCOUNT\(/gi,'len(').replace(/\bABS\(/gi,'abs(')
+    .replace(/\bROUND\(/gi,'round(')
+    .replace(/\^/g,'**')
+    .replace(/<>/g,'!=')
+    .replace(/(?<![<>!=])=(?!=)/g,'==');
+  const unsupported = /\b[A-Z]{2,}\(/.test(f);
+  return { py:f, unsupported };
+}
+
+/* ---------- codegen ---------- */
+function generate(){
+  const names = state.names;
+  const { order, cyclic } = topoSort();
+  state.order = order;
+  const cells = state.cells;
+  const inputs = new Set();
+  for(const [, kids] of state.graph.deps)
+    for(const k of kids)
+      if(!state.graph.deps.has(k) && cells.has(k)) inputs.add(k);
+
+  const L = [];
+  L.push('"""');
+  L.push(`Compiled from ${state.sheetName || 'workbook'}.xlsx by LEDGER.`);
+  L.push('');
+  L.push('Every function below is one formula cell, emitted in topological order.');
+  L.push('The spreadsheet is now a module: it can be diffed, reviewed, and tested.');
+  L.push('"""');
+  L.push('from dataclasses import dataclass');
+  L.push('from statistics import mean  # noqa: F401');
+  L.push('');
+  L.push('');
+  L.push('@dataclass(frozen=True)');
+  L.push('class Inputs:');
+  L.push('    """Cells nothing else computes — the actual data."""');
+  const inputList = [...inputs].sort((a,b)=>{
+    const A=cells.get(a),B=cells.get(b); return A.r-B.r || A.c-B.c;
+  });
+  if(!inputList.length) L.push('    pass');
+  for(const a of inputList){
+    const c = cells.get(a);
+    const ty = typeof c.v === 'number' ? 'float' : 'str';
+    const lit = typeof c.v === 'number' ? c.v : JSON.stringify(String(c.v ?? ''));
+    L.push(`    ${names[a]}: ${ty} = ${lit}  # ${a}`);
+  }
+  L.push('');
+  L.push('');
+  L.push('def compute(i: Inputs) -> dict:');
+  L.push('    """Recompute the whole sheet from its inputs, in dependency order."""');
+  for(const a of inputList) L.push(`    ${names[a]} = i.${names[a]}`);
+  L.push('');
+  const flagged = new Map();
+  for(const F of state.findings)
+    if(F.sev==='error' && F.cells.length) flagged.set(F.cells[0], F);
+  for(const a of order){
+    const c = cells.get(a);
+    if(!c || !c.f) continue;
+    const { py, unsupported } = toPython(c, names);
+    if(flagged.has(a)){
+      const f = flagged.get(a);
+      L.push(`    # !! LEDGER ${f.code}: ${f.title} — see audit`);
+    }
+    if(unsupported) L.push(`    # TODO(ledger): unsupported function, verify by hand`);
+    L.push(`    ${names[a]} = ${py}  # ${a}: =${c.f}`);
+  }
+  L.push('');
+  L.push('    return {');
+  for(const a of order) if(cells.get(a)) L.push(`        "${a}": ${names[a]},`);
+  L.push('    }');
+  if(cyclic.length){
+    L.push('');
+    L.push('# Not emitted — circular, therefore not a computation:');
+    for(const a of cyclic) L.push(`#   ${a}: =${cells.get(a).f}`);
+  }
+
+  /* --- regression suite: pin every cell to the value Excel actually cached --- */
+  const T = [];
+  T.push('"""');
+  T.push('Regression suite generated by LEDGER.');
+  T.push('');
+  T.push('Each test pins a cell to the value Excel had cached when the workbook was');
+  T.push('saved. Refactor the sheet — or the module — and anything that moves, fails.');
+  T.push('This is the safety net the spreadsheet never had.');
+  T.push('"""');
+  T.push('import pytest');
+  T.push('from module import Inputs, compute');
+  T.push('');
+  T.push('');
+  T.push('@pytest.fixture(scope="module")');
+  T.push('def sheet():');
+  T.push('    return compute(Inputs())');
+  T.push('');
+  T.push('');
+  const num = order.filter(a => cells.get(a) && typeof cells.get(a).v === 'number');
+  T.push('@pytest.mark.parametrize("cell,expected", [');
+  for(const a of num) T.push(`    ("${a}", ${cells.get(a).v}),`);
+  T.push('])');
+  T.push('def test_matches_excel(sheet, cell, expected):');
+  T.push('    """The compiled module reproduces the workbook, cell for cell."""');
+  T.push('    assert sheet[cell] == pytest.approx(expected, rel=1e-9)');
+  T.push('');
+  if(state.invariants && state.invariants.length){
+    T.push('');
+    T.push('# ---------------------------------------------------------------');
+    T.push('# Business-rule invariants. A parser cannot infer these: they come');
+    T.push('# from reading the sheet\'s headers and understanding what it is FOR.');
+    T.push('# Proposed by the model, kept only where they are checkable.');
+    T.push('# ---------------------------------------------------------------');
+    for(const inv of state.invariants){
+      T.push('');
+      T.push(`def test_${slug(inv.name)}(sheet):`);
+      T.push(`    """${inv.why}"""`);
+      T.push(`    ${inv.assert_}`);
+    }
+  }
+
+  return { py:L.join('\n'), test:T.join('\n') };
+}
+
+/* ---------- Featherless: the semantic layer ----------
+   Two models, routed by task. Naming and invariant-writing are code generation
+   (snake_case identifiers, syntactically valid `assert` lines) and go to a
+   coder-tuned model. Explaining a defect to the person who owns the numbers is
+   prose, and goes to a general instruct model. Same catalog, different jobs. */
+async function llm(model, messages, json=true){
+  const key = $('#key').value.trim();
+  const url = $('#endpoint').value.trim();
+  if(!key) throw new Error('No API key. Open “Inference settings”.');
+  const res = await fetch(url, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+key },
+    body: JSON.stringify({
+      model,
+      messages,
+      max_tokens: 1400,
+      temperature: json ? 0.1 : 0.4
+    })
+  });
+  if(!res.ok) throw new Error('Inference failed on '+model+': HTTP '+res.status+' '+(await res.text()).slice(0,140));
+  const data = await res.json();
+  let txt = data.choices?.[0]?.message?.content ?? '';
+  if(!json) return txt;
+  txt = txt.replace(/```(?:json)?/g,'').trim();
+  const s = txt.indexOf('{'), e = txt.lastIndexOf('}');
+  if(s<0 || e<0) throw new Error('Model did not return JSON.');
+  return JSON.parse(txt.slice(s, e+1));
+}
+const CODE_MODEL  = () => $('#model-code').value.trim();
+const PROSE_MODEL = () => $('#model-prose').value.trim();
+
+/* A compact, honest description of the sheet: headers, formulas, no values.
+   Small enough for an 8B model, rich enough to carry the meaning. */
+function sheetDigest(){
+  const cells = state.cells;
+  const rows = [];
+  for(const [a,c] of [...cells].sort((x,y)=> x[1].r-y[1].r || x[1].c-y[1].c)){
+    if(c.f) rows.push(`${a}: =${c.f}`);
+    else if(typeof c.v === 'string') rows.push(`${a}: "${c.v}"  (label)`);
+  }
+  return rows.slice(0,120).join('\n');
+}
+
+async function runAI(){
+  setStatus('Naming cells with '+CODE_MODEL().split('/').pop()+'…');
+  const digest = sheetDigest();
+
+  /* Pass 1 — naming. This is the pass a parser can never do. */
+  const formulaCells = state.order.filter(a => state.cells.get(a)?.f);
+  const inputCells = [];
+  for(const [, kids] of state.graph.deps)
+    for(const k of kids)
+      if(!state.graph.deps.has(k) && state.cells.has(k) && typeof state.cells.get(k).v === 'number')
+        inputCells.push(k);
+  const toName = [...new Set([...inputCells, ...formulaCells])].slice(0,60);
+
+  const naming = await llm(CODE_MODEL(), [
+    { role:'system', content:
+      'You name spreadsheet cells for a compiler. Given the labels and formulas of a sheet, '+
+      'return a snake_case Python identifier for each requested cell that a human engineer would '+
+      'recognise — derive it from the row and column headers, not from the cell address. '+
+      'Reply with JSON only: {"names":{"D2":"widget_line_total", ...}}. No prose.' },
+    { role:'user', content:
+      `Sheet "${state.sheetName}":\n${digest}\n\nName these cells: ${toName.join(', ')}` }
+  ]);
+  if(naming.names){
+    const used = new Set();
+    for(const [a,n] of Object.entries(naming.names)){
+      if(!state.cells.has(a)) continue;
+      let base = slug(n).replace(/^(\d)/,'n$1');
+      let k = base, i = 2;
+      while(used.has(k)) k = base+'_'+(i++);
+      used.add(k);
+      state.names[a] = k;
+    }
+  }
+
+  /* Pass 2 — explain each defect the way you'd explain it to the CFO. */
+  if(state.findings.length){
+    setStatus('Explaining defects with '+PROSE_MODEL().split('/').pop()+'…');
+    const list = state.findings.map((f,i)=>`[${i}] ${f.code} at ${f.cells.join(',')}: ${f.body}`).join('\n');
+    const expl = await llm(PROSE_MODEL(), [
+      { role:'system', content:
+        'You are an auditor explaining spreadsheet defects to the person who owns the numbers. '+
+        'For each finding, say in ONE sentence what the author was probably trying to do, and in one '+
+        'more what this costs them in the real world. Concrete, no hedging, no jargon. '+
+        'JSON only: {"explanations":{"0":"...","1":"..."}}' },
+      { role:'user', content: `Sheet "${state.sheetName}":\n${digest}\n\nFindings:\n${list}` }
+    ]);
+    if(expl.explanations)
+      for(const [i,text] of Object.entries(expl.explanations))
+        if(state.findings[i]) state.findings[i].ai = text;
+  }
+
+  /* Pass 3 — invariants. The model proposes business rules; we keep only
+     the ones that are syntactically valid Python assertions over the result
+     dict. The model suggests; the compiler decides. */
+  setStatus('Proposing invariants with '+CODE_MODEL().split('/').pop()+'…');
+  const nameMap = Object.entries(state.names).map(([a,n])=>`${a} -> ${n}`).join('\n');
+  const inv = await llm(CODE_MODEL(), [
+    { role:'system', content:
+      'You write property tests for a compiled spreadsheet. Propose up to 4 business-rule invariants '+
+      'that must hold for ANY valid input to this sheet — the kind of rule a domain expert knows but '+
+      'the formulas never state. Each assertion must be a single Python line using sheet["A1"] lookups '+
+      'and pytest.approx where floats are compared. JSON only: '+
+      '{"invariants":[{"name":"totals_are_non_negative","why":"...","assert_":"assert sheet[\\"D12\\"] >= 0"}]}' },
+    { role:'user', content: `Sheet "${state.sheetName}":\n${digest}\n\nCell names:\n${nameMap}` }
+  ]);
+  state.invariants = (inv.invariants||[])
+    .filter(x => x && typeof x.assert_==='string' && /^assert\s/.test(x.assert_.trim()) && !/\n/.test(x.assert_))
+    .slice(0,4);
+
+  render();
+  setStatus(`Semantic pass complete — ${Object.keys(state.names).length} cells named, ${state.invariants.length} invariants proposed.`);
+}
+
+/* ---------- render ---------- */
+function setStatus(s){ $('#status').innerHTML = s; }
+
+function renderSheet(){
+  const cells = state.cells;
+  let maxR=0, maxC=0;
+  for(const c of cells.values()){ maxR=Math.max(maxR,c.r); maxC=Math.max(maxC,c.c); }
+  maxR = Math.min(maxR, 40); maxC = Math.min(maxC, 12);
+
+  const flagged = new Map();
+  for(const f of state.findings)
+    for(const a of f.cells)
+      if(!flagged.has(a) || f.sev==='error') flagged.set(a, f.code);
+
+  let h = '<div class="paper-wrap"><table class="grid"><thead><tr><th></th>';
+  for(let c=0;c<=maxC;c++) h += `<th>${colName(c)}</th>`;
+  h += '</tr></thead><tbody>';
+  for(let r=0;r<=maxR;r++){
+    h += `<tr><td class="rowhead">${r+1}</td>`;
+    for(let c=0;c<=maxC;c++){
+      const cell = cells.get(addr(r,c));
+      const a = addr(r,c);
+      const isF = cell && cell.f;
+      const cls = [];
+      if(isF) cls.push('formula');
+      if(flagged.has(a)) cls.push('flag');
+      const disp = !cell ? '' : (isF ? '='+cell.f : (typeof cell.v==='number' ? cell.v : String(cell.v ?? '')));
+      const mark = flagged.has(a) ? ` data-mark="${flagged.get(a)}"` : '';
+      h += `<td class="${cls.join(' ')}"${mark} title="${a}">${String(disp).replace(/</g,'&lt;')}</td>`;
+    }
+    h += '</tr>';
+  }
+  h += '</tbody></table></div>';
+  $('#sheet-host').innerHTML = h;
+}
+
+function md(s){
+  return String(s).replace(/</g,'&lt;').replace(/`([^`]+)`/g,'<code style="background:rgba(0,0,0,.06);padding:1px 4px">$1</code>');
+}
+
+function renderFindings(){
+  const F = state.findings;
+  $('#stats').hidden = false;
+  $('#s-cells').textContent = state.graph.deps.size;
+  $('#s-edges').textContent = state.graph.edges;
+  $('#s-depth').textContent = maxDepth();
+  $('#s-bugs').textContent = F.filter(f=>f.sev==='error').length;
+
+  if(!F.length){
+    $('#findings').innerHTML = '<div class="clean">No defects found. The sheet is internally consistent.</div>';
+    return;
+  }
+  const order = { error:0, warn:1 };
+  const sorted = [...F].sort((a,b)=>order[a.sev]-order[b.sev]);
+  $('#findings').innerHTML = sorted.map(f=>`
+    <div class="finding ${f.sev==='warn'?'warn':''}">
+      <h4>${f.code} · ${f.title}</h4>
+      <p>${md(f.body)}</p>
+      <div class="cells">${f.cells.slice(0,8).join(' · ')}</div>
+      ${f.ai ? `<div class="ai">${md(f.ai)}</div>` : ''}
+    </div>`).join('');
+}
+
+function renderDAG(){
+  const { deps } = state.graph;
+  const cells = state.cells;
+  const level = new Map();
+  const memo = new Map();
+  const d = n => {
+    if(memo.has(n)) return memo.get(n);
+    memo.set(n,0);
+    const kids = (deps.get(n)||[]).filter(k=>deps.has(k));
+    const v = kids.length ? 1+Math.max(...kids.map(d)) : 0;
+    memo.set(n,v); return v;
+  };
+  const nodes = new Set();
+  for(const [n,kids] of deps){ nodes.add(n); for(const k of kids) if(cells.has(k)) nodes.add(k); }
+  for(const n of nodes) level.set(n, deps.has(n) ? d(n)+1 : 0);
+
+  const cols = new Map();
+  for(const [n,l] of level){ if(!cols.has(l)) cols.set(l,[]); cols.get(l).push(n); }
+  const maxL = Math.max(...cols.keys());
+  const colW = 130, rowH = 22, pad = 14;
+  const maxRows = Math.max(...[...cols.values()].map(v=>Math.min(v.length,16)));
+  const W = (maxL+1)*colW + pad*2, H = maxRows*rowH + pad*2 + 18;
+
+  const bad = new Set();
+  for(const f of state.findings) if(f.sev==='error') for(const c of f.cells) bad.add(c);
+
+  const pos = new Map();
+  let svg = '';
+  for(const [l, list] of [...cols].sort((a,b)=>a[0]-b[0])){
+    list.sort();
+    list.slice(0,16).forEach((n,i)=>{
+      const x = pad + l*colW, y = pad + 18 + i*rowH;
+      pos.set(n,{x,y});
+    });
+    svg += `<text x="${pad + l*colW}" y="${pad+8}" opacity=".5">${l===0?'inputs':'depth '+l}</text>`;
+  }
+  let edges = '';
+  for(const [n,kids] of deps){
+    const a = pos.get(n); if(!a) continue;
+    for(const k of new Set(kids)){
+      const b = pos.get(k); if(!b) continue;
+      const x1=b.x+96, y1=b.y+7, x2=a.x, y2=a.y+7;
+      const mx=(x1+x2)/2;
+      edges += `<path class="edge" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`;
+    }
+  }
+  let boxes = '';
+  for(const [n,p] of pos){
+    const label = (state.names[n] || n).slice(0,13);
+    const cls = bad.has(n) ? 'node bad' : (deps.has(n) ? 'node' : 'node input');
+    boxes += `<g class="${cls}"><rect x="${p.x}" y="${p.y}" width="96" height="15" rx="1"/>`+
+             `<text x="${p.x+4}" y="${p.y+11}">${label}</text></g>`;
+  }
+  $('#dag').setAttribute('viewBox', `0 0 ${W} ${H}`);
+  $('#dag').innerHTML = svg + edges + boxes;
+}
+
+function hl(code){
+  return code.replace(/</g,'&lt;')
+    .replace(/(#.*|"""[\s\S]*?""")/g,'<span class="c">$1</span>')
+    .replace(/\b(def|class|import|from|return|assert|if|else|for|in|not)\b/g,'<span class="k">$1</span>');
+}
+
+function render(){
+  renderSheet();
+  renderFindings();
+  renderDAG();
+  const { py, test } = generate();
+  state.out = { py, test };
+  $('#out-py').innerHTML = hl(py);
+  $('#out-test').innerHTML = hl(test);
+  $('#btn-dl-py').disabled = false;
+  $('#btn-dl-test').disabled = false;
+}
+
+function compile(){
+  audit();
+  state.names = heuristicNames();
+  topoSort();
+  state.order = topoSort().order;
+  render();
+  const errs = state.findings.filter(f=>f.sev==='error').length;
+  const warns = state.findings.length - errs;
+  setStatus(errs
+    ? `<b style="color:var(--red)">${errs} defect${errs>1?'s':''}</b> and ${warns} warning${warns===1?'':'s'} in ${state.graph.deps.size} formula cells.`
+    : `Clean: ${state.graph.deps.size} formula cells, ${warns} warnings.`);
+  $('#btn-ai').disabled = false;
+}
+
+/* ---------- demo workbook: four real bugs, all of them plausible ---------- */
+function demoWorkbook(){
+  const items = [
+    ['Steel bracket',      120, 4.25],
+    ['Aluminium housing',   64, 18.90],
+    ['Control board',       40, 62.00],
+    ['Wiring loom',         85, 11.40],
+    ['Gasket set',         310,  1.95],
+    ['Bearing, 6203',      200,  3.10],
+    ['Motor, 24V',          32, 47.50],   // row 8 — the pasted-wrong-row bug
+    ['Fastener pack',      500,  0.42],
+    ['Enclosure lid',       75,  9.80],
+    ['Thermal pad',        150,  2.35],   // row 11 — the row SUM forgets
+  ];
+  const ws = {};
+  const put = (a, cell) => { ws[a] = cell; };
+  const heads = ['Line item','Units','Unit cost','Line total','With tax'];
+  heads.forEach((h,i)=> put(addr(0,i), { t:'s', v:h }));
+
+  const D = {}, E = {};
+  items.forEach((it,i)=>{
+    const r = i+1;                       // rows 2..11
+    put(addr(r,0), { t:'s', v:it[0] });
+    put(addr(r,1), { t:'n', v:it[1] });
+    put(addr(r,2), { t:'n', v:it[2] });
+
+    // BUG 1 — D8 was pasted one row off: it multiplies by the row above's cost.
+    const costRow = (r===7) ? r-1 : r;
+    const f = `B${r+1}*C${costRow+1}`;
+    const val = it[1] * items[costRow-1][2];
+    D[r] = val;
+    put(addr(r,3), { t:'n', v:val, f });
+
+    // BUG 2 — 1.085 is a tax rate hardcoded into ten separate formulas.
+    const ev = val * 1.085;
+    E[r] = ev;
+    put(addr(r,4), { t:'n', v:ev, f:`D${r+1}*1.085` });
+  });
+
+  // BUG 3 — the total sums D2:D10 but the data runs to D11. One row vanishes.
+  //          Column E, right next to it, sums correctly. Same sheet, same author.
+  put(addr(11,0), { t:'s', v:'Total' });
+  let sum = 0; for(let r=1;r<=9;r++) sum += D[r];
+  put(addr(11,3), { t:'n', v:sum, f:'SUM(D2:D10)' });
+  let esum = 0; for(let r=1;r<=10;r++) esum += E[r];
+  put(addr(11,4), { t:'n', v:esum, f:'SUM(E2:E11)' });
+
+  // BUG 4 — a "checksum" pair that quietly references itself.
+  put(addr(1,6), { t:'s', v:'Checksum' });
+  put(addr(2,7), { t:'n', v:0, f:'H4+1' });
+  put(addr(3,7), { t:'n', v:0, f:'H3+1' });
+
+  ws['!ref'] = 'A1:H12';
+  return ws;
+}
+
+/* ---------- wiring ---------- */
+$('#btn-demo').onclick = () => {
+  ingest(demoWorkbook(), 'Q3 parts budget');
+  renderSheet();
+  $('#btn-compile').disabled = false;
+  setStatus(`Loaded <b>Q3 parts budget</b> — ${state.graph.deps.size} formula cells. Nothing has been checked yet.`);
+};
+$('#btn-open').onclick = () => $('#file').click();
+$('#file').onchange = e => { if(e.target.files[0]) loadFile(e.target.files[0]); };
+
+function loadFile(file){
+  const fr = new FileReader();
+  fr.onload = ev => {
+    try{
+      const wb = XLSX.read(new Uint8Array(ev.target.result), { type:'array', cellFormula:true, cellNF:true });
+      const name = wb.SheetNames[0];
+      ingest(wb.Sheets[name], name);
+      renderSheet();
+      $('#btn-compile').disabled = false;
+      setStatus(`Loaded <b>${file.name}</b> — sheet “${name}”, ${state.graph.deps.size} formula cells.`);
+    }catch(err){
+      setStatus('<b style="color:var(--red)">Could not read that file.</b> ' + err.message);
+    }
+  };
+  fr.readAsArrayBuffer(file);
+}
+
+const drop = $('#drop');
+['dragover','dragenter'].forEach(e => document.addEventListener(e, ev => {
+  ev.preventDefault(); drop && drop.classList.add('hot');
+}));
+['dragleave','drop'].forEach(e => document.addEventListener(e, ev => {
+  ev.preventDefault(); drop && drop.classList.remove('hot');
+}));
+document.addEventListener('drop', ev => {
+  const f = ev.dataTransfer?.files?.[0];
+  if(f) loadFile(f);
+});
+
+$('#btn-compile').onclick = compile;
+$('#btn-ai').onclick = () => {
+  $('#btn-ai').disabled = true;
+  runAI()
+    .catch(err => setStatus('<b style="color:var(--red)">'+err.message+'</b>'))
+    .finally(()=> { $('#btn-ai').disabled = false; });
+};
+$('#btn-settings').onclick = () => { $('#settings').hidden = !$('#settings').hidden; };
+
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x===t)));
+  ['py','test','dag'].forEach(id => $('#tab-'+id).hidden = (id !== t.dataset.tab));
+});
+
+const dl = (name, text) => {
+  const b = new Blob([text], { type:'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = name; a.click();
+  URL.revokeObjectURL(a.href);
+};
+$('#btn-dl-py').onclick = () => dl('module.py', state.out.py);
+$('#btn-dl-test').onclick = () => dl('test_module.py', state.out.test);
+</script>
+</body>
+</html>
