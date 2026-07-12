@@ -1612,32 +1612,6 @@
     };
     $('#btn-settings').onclick = () => { $('#settings').hidden = !$('#settings').hidden; };
 
-    /* ---------- settings persistence (localStorage) ---------- */
-    const STORE_KEY = 'ledger:settings';
-    function loadSettings() {
-      try {
-        const s = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
-        if (s.key) $('#key').value = s.key;
-        if (s.modelCode) $('#model-code').value = s.modelCode;
-        if (s.modelProse) $('#model-prose').value = s.modelProse;
-        if (s.endpoint) $('#endpoint').value = s.endpoint;
-      } catch (e) { /* corrupt storage — ignore */ }
-    }
-    function saveSettings() {
-      const s = {
-        key: $('#key').value.trim(),
-        modelCode: $('#model-code').value.trim(),
-        modelProse: $('#model-prose').value.trim(),
-        endpoint: $('#endpoint').value.trim(),
-      };
-      localStorage.setItem(STORE_KEY, JSON.stringify(s));
-      const confirm = $('#save-confirm');
-      confirm.style.opacity = '1';
-      setTimeout(() => { confirm.style.opacity = '0'; }, 1800);
-    }
-    loadSettings();
-    $('#btn-save-settings').onclick = saveSettings;
-
     document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
       document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x === t)));
       ['py', 'test', 'dag'].forEach(id => $('#tab-' + id).hidden = (id !== t.dataset.tab));
